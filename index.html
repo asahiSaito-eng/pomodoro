@@ -4,268 +4,228 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>ポモドーロタイマー</title>
-<!-- ファビコン -->
-  <link rel="icon" href="favicon.png" type="image/png">
-  <link rel="apple-touch-icon" sizes="180x180" href="apple-touch-icon.png">
+
+<!-- PWA manifest -->
+<link rel="manifest" href="/manifest.json">
+<meta name="theme-color" content="#ff055b">
+
+<!-- Apple Touch Icon -->
+<link rel="apple-touch-icon" sizes="180x180" href="/img/apple-touch-icon-180.png">
 
 <style>
-  body {
-    margin: 0;
-    height: 100vh;
+  html, body {
+    margin:0; padding:0;
+    font-family: sans-serif;
+    height: 100%;
     display: flex;
     flex-direction: column;
-    align-items: center;
-    font-family: 'Segoe UI', sans-serif;
-    color: white;
-    background: linear-gradient(to top, #ff055b, #f59c01);
-    transition: background 1s ease;
-    padding-top: 6vh;
-  }
-
-  .circle-container {
-    position: relative;
-    width: min(90vw, 420px);
-    height: min(90vw, 420px);
-  }
-
-  svg {
-    transform: rotate(-90deg);
-  }
-
-  .bg-circle {
-    stroke: rgba(255, 255, 255, 0.2);
-    stroke-width: 3;
-    fill: none;
-  }
-
-  .progress-circle {
-    stroke: white;
-    stroke-width: 3;
-    fill: none;
-    stroke-linecap: round;
-    stroke-dasharray: 0; /* JSで設定 */
-    stroke-dashoffset: 0;
-    transition: stroke-dashoffset 0.5s linear;
-  }
-
-  .timer-text {
-    position: absolute;
-    top: 45%;
-    left: 50%;
-    transform: translate(-50%, -50%);
-    font-size: clamp(4rem, 16vw, 5rem);
-    font-weight: bold;
-  }
-
-  /* ステータス文はタイマー下に固定 */
-  .phase-text {
-    position: absolute;
-    top: 62%; /* 下に下げて余裕を確保 */
-    left: 50%;
-    transform: translate(-50%, -50%);
-    font-size: clamp(1rem, 5vw, 1.2rem);
-    opacity: 0.9;
-  }
-
-  .controls {
-    margin-top: 50px; /* 余裕を持たせる */
-    text-align: center;
-    display: flex;
-    gap: 20px;
     justify-content: center;
+    align-items: center;
+    background: linear-gradient(to top, #ff055b, #f59c01);
   }
-
-  .circle-btn {
-  border: 1px solid white;
-  border-radius: 50%;
-  width: 60px;       /* 縦横固定 */
-  height: 60px;
-  background: transparent;
-  color: white;
-  font-size: 2rem;
-  cursor: pointer;
-
-  /* 中央揃え */
-  display: flex;
-  align-items: center;
-  justify-content: center;
-
-  /* テキストが縦に伸びないように */
-  line-height: 1;
-  padding: 0;
-}
-
-
-  .pomodoro-count {
-    margin-top: 35px; /* ボタン下に余裕 */
-    font-size: clamp(0.8rem, 3vw, 1rem);
-    opacity: 0.8;
+  #timer-container {
+    position: relative;
+    width: 280px;
+    height: 280px;
+    margin-bottom: 40px;
+  }
+  canvas {
+    position: absolute;
+    top:0; left:0;
+  }
+  #time {
+    position: absolute;
+    top: 40%;
+    width: 100%;
+    text-align: center;
+    font-size: 48px;
+    font-weight: bold;
+    color: white;
+  }
+  #status {
+    position: absolute;
+    top: 65%;
+    width: 100%;
+    text-align: center;
+    font-size: 20px;
+    color: white;
+  }
+  #controls {
+    display: flex;
+    gap: 30px;
+    margin-bottom: 20px;
+  }
+  .btn-circle {
+    width: 60px; height: 60px;
+    border-radius: 50%;
+    border: 2px solid white;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    font-size: 30px;
+    color: white;
+    cursor: pointer;
+    user-select: none;
+  }
+  #pomodoro-count {
+    font-size: 16px;
+    color: white;
   }
 </style>
 </head>
 <body>
 
-<div class="circle-container">
-  <svg width="100%" height="100%" viewBox="0 0 100 100">
-    <circle class="bg-circle" cx="50" cy="50" r="45"/>
-    <circle id="progress" class="progress-circle" cx="50" cy="50" r="45"/>
-  </svg>
-  <div class="timer-text" id="timer">25:00</div>
-  <div class="phase-text" id="phase">作業開始</div>
+<div id="timer-container">
+  <canvas id="timer-canvas" width="280" height="280"></canvas>
+  <div id="time">25:00</div>
+  <div id="status">作業開始</div>
 </div>
 
-<div class="controls" id="controls">
-  <button class="circle-btn" id="startBtn" onclick="toggleTimer()">▶</button>
+<div id="controls">
+  <div id="start-pause-btn" class="btn-circle">▶</div>
+  <div id="stop-btn" class="btn-circle">■</div>
 </div>
 
-<div class="pomodoro-count" id="pomodoroCount">現在 0 ポモドーロ</div>
-
-<audio id="alarm">
-  <source src="https://actions.google.com/sounds/v1/alarms/alarm_clock.ogg" type="audio/ogg">
-</audio>
+<div id="pomodoro-count">現在 0 ポモドーロ</div>
 
 <script>
-let workTime = 25 * 60;
-let shortBreak = 5 * 60;
-let longBreak = 20 * 60;
-let currentTime = workTime;
+let workTime = 25*60; // 秒
+let shortBreak = 5*60;
+let longBreak = 20*60;
 let cycleCount = 0;
-let pomodoroCount = 0;
-let timerInterval;
+let totalPomodoro = 0;
+let timer = workTime;
 let isRunning = false;
-let phase = "ready"; // ready, work, shortBreak, longBreak, paused
+let interval = null;
+let phase = 'work'; // work / short / long / paused
+let alarmAudio;
 
-const timerEl = document.getElementById("timer");
-const phaseEl = document.getElementById("phase");
-const pomodoroEl = document.getElementById("pomodoroCount");
-const progressCircle = document.getElementById("progress");
-const radius = 45;
-const circumference = 2 * Math.PI * radius;
-progressCircle.style.strokeDasharray = circumference;
-progressCircle.style.strokeDashoffset = circumference;
+// Canvas setup
+const canvas = document.getElementById('timer-canvas');
+const ctx = canvas.getContext('2d');
+const radius = canvas.width/2 - 10;
+
+function drawCircle() {
+  ctx.clearRect(0,0,canvas.width, canvas.height);
+  // 背景円
+  ctx.beginPath();
+  ctx.arc(canvas.width/2, canvas.height/2, radius, 0, Math.PI*2);
+  ctx.strokeStyle = 'rgba(255,255,255,0.2)';
+  ctx.lineWidth = 6;
+  ctx.stroke();
+
+  // 進捗円（白くなる）
+  let total = (phase==='work'?workTime:(phase==='short'?shortBreak:longBreak));
+  let percent = 1 - timer / total;
+  ctx.beginPath();
+  ctx.arc(canvas.width/2, canvas.height/2, radius, -Math.PI/2, -Math.PI/2 + percent*2*Math.PI);
+  ctx.strokeStyle = 'white';
+  ctx.lineWidth = 6;
+  ctx.stroke();
+}
+
+function formatTime(t) {
+  const m = Math.floor(t/60).toString().padStart(2,'0');
+  const s = (t%60).toString().padStart(2,'0');
+  return `${m}:${s}`;
+}
 
 function updateDisplay() {
-  let minutes = Math.floor(currentTime / 60);
-  let seconds = currentTime % 60;
-  timerEl.textContent = `${String(minutes).padStart(2,'0')}:${String(seconds).padStart(2,'0')}`;
-  pomodoroEl.textContent = `現在 ${pomodoroCount} ポモドーロ`;
-
-  let totalTime = phase === "work" ? workTime :
-                  phase === "shortBreak" ? shortBreak :
-                  phase === "longBreak" ? longBreak : workTime;
-
-  let progress = (totalTime - currentTime) / totalTime;
-  progressCircle.style.strokeDashoffset = circumference * (1 - progress);
+  document.getElementById('time').textContent = formatTime(timer);
+  if(phase==='work') document.getElementById('status').textContent = isRunning ? '作業中' : '作業開始';
+  else if(phase==='short') document.getElementById('status').textContent = '小休憩';
+  else if(phase==='long') document.getElementById('status').textContent = '大休憩';
+  else if(phase==='paused') document.getElementById('status').textContent = '一時停止中';
+  drawCircle();
 }
 
 function playAlarm() {
-  const alarm = document.getElementById("alarm");
-  alarm.currentTime = 0;
-  alarm.play();
-  setTimeout(()=>alarm.pause(),2000); // 2秒で止める
+  if(!alarmAudio) {
+    alarmAudio = new Audio('/alarm.mp3');
+  }
+  alarmAudio.currentTime = 0;
+  alarmAudio.play().catch(e=>console.log('Audio再生制限', e));
 }
 
-function setBackgroundForPhase() {
-  if(phase==="work"||phase==="ready"||phase==="paused")
-    document.body.style.background="linear-gradient(to top, #ff055b, #f59c01)";
-  else if(phase==="shortBreak")
-    document.body.style.background="linear-gradient(to top, #4facfe, #00f2fe)";
-  else if(phase==="longBreak")
-    document.body.style.background="linear-gradient(to top, #43e97b, #38f9d7)";
-}
-
-function renderControls(){
-  const controls = document.getElementById("controls");
-  controls.innerHTML = "";
-  if(phase==="ready") {
-    controls.innerHTML=`<button class="circle-btn" onclick="toggleTimer()">▶</button>`;
-  } else if(isRunning){
-    controls.innerHTML=`<button class="circle-btn" onclick="pauseTimer()">‖</button>
-                        <button class="circle-btn" onclick="stopTimer()">■</button>`;
-  } else if(phase==="paused"){
-    controls.innerHTML=`<button class="circle-btn" onclick="resumeTimer()">▶</button>
-                        <button class="circle-btn" onclick="stopTimer()">■</button>`;
+async function requestNotificationPermission() {
+  if('Notification' in window && Notification.permission !== 'granted') {
+    await Notification.requestPermission();
   }
 }
 
-function toggleTimer(){
-  if(!isRunning){
-    if(phase==="ready"){
-      phase="work";
-      currentTime=workTime;
-      phaseEl.textContent="作業中";
-      setBackgroundForPhase();
-    }
-    startTimer();
+function sendNotification(title, body) {
+  if('Notification' in window && Notification.permission === 'granted') {
+    new Notification(title, {body: body, icon: '/img/apple-touch-icon-180.png'});
   }
 }
 
-function startTimer(){
-  isRunning=true;
-  phaseEl.textContent=phase==="paused"?"作業中":phaseEl.textContent;
-  renderControls();
-  timerInterval=setInterval(()=>{
-    currentTime--;
-    updateDisplay();
-
-    if(currentTime<=0){
-      playAlarm();
-      clearInterval(timerInterval);
-      isRunning=false;
-
-      if(phase==="work"){
-        pomodoroCount++;
-        cycleCount++;
-        if(cycleCount%4===0){
-          phase="longBreak";
-          currentTime=longBreak;
-          phaseEl.textContent="大休憩";
-        } else {
-          phase="shortBreak";
-          currentTime=shortBreak;
-          phaseEl.textContent="小休憩";
-        }
-      } else {
-        phase="work";
-        currentTime=workTime;
-        phaseEl.textContent="作業中";
-      }
-
-      setBackgroundForPhase();
-      updateDisplay();
-      startTimer();
-    }
-  },1000);
-}
-
-function pauseTimer(){
-  clearInterval(timerInterval);
-  isRunning=false;
-  phase="paused";
-  phaseEl.textContent="一時停止中";
-  renderControls();
-}
-
-function resumeTimer(){
-  phase="work";
-  phaseEl.textContent="作業中";
-  startTimer();
-}
-
-function stopTimer(){
-  clearInterval(timerInterval);
-  isRunning=false;
-  phase="ready";
-  currentTime=workTime;
-  phaseEl.textContent="作業開始";
-  setBackgroundForPhase();
+function nextPhase() {
+  playAlarm();
+  if(phase==='work') {
+    totalPomodoro++;
+    cycleCount++;
+    timer = (cycleCount%4===0)?longBreak:shortBreak;
+    phase = (cycleCount%4===0)?'long':'short';
+    sendNotification('休憩開始', (phase==='long')?'大休憩です':'小休憩です');
+  } else {
+    timer = workTime;
+    phase='work';
+    sendNotification('作業開始', '作業を再開しましょう');
+  }
   updateDisplay();
-  renderControls();
+  document.getElementById('pomodoro-count').textContent = `現在 ${totalPomodoro} ポモドーロ`;
 }
+
+function tick() {
+  if(timer>0) {
+    timer--;
+    updateDisplay();
+  } else {
+    nextPhase();
+  }
+}
+
+const startPauseBtn = document.getElementById('start-pause-btn');
+const stopBtn = document.getElementById('stop-btn');
+
+startPauseBtn.addEventListener('click', async ()=>{
+  await requestNotificationPermission();
+  if(!alarmAudio) alarmAudio = new Audio('/alarm.mp3'); // ユーザー操作で再生許可取得
+
+  if(!isRunning) {
+    isRunning = true;
+    if(phase==='paused') phase='work';
+    interval = setInterval(tick,1000);
+    startPauseBtn.textContent = '‖';
+  } else {
+    isRunning = false;
+    clearInterval(interval);
+    interval=null;
+    phase='paused';
+    startPauseBtn.textContent='▶';
+  }
+  updateDisplay();
+});
+
+stopBtn.addEventListener('click', ()=>{
+  clearInterval(interval);
+  interval=null;
+  isRunning=false;
+  timer=workTime;
+  phase='work';
+  startPauseBtn.textContent='▶';
+  updateDisplay();
+  document.getElementById('pomodoro-count').textContent = `現在 ${totalPomodoro} ポモドーロ`;
+});
 
 updateDisplay();
-renderControls();
+
+// Service Worker 登録（バックグラウンド通知用）
+if('serviceWorker' in navigator){
+  navigator.serviceWorker.register('/sw.js').then(()=>console.log('SW registered'));
+}
 </script>
+
 
 </body>
 </html>
