@@ -1,0 +1,267 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ポモドーロタイマー</title>
+<style>
+  body {
+    margin: 0;
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    font-family: 'Segoe UI', sans-serif;
+    color: white;
+    background: linear-gradient(to top, #ff055b, #f59c01);
+    transition: background 1s ease;
+    padding-top: 6vh;
+  }
+
+  .circle-container {
+    position: relative;
+    width: min(90vw, 420px);
+    height: min(90vw, 420px);
+  }
+
+  svg {
+    transform: rotate(-90deg);
+  }
+
+  .bg-circle {
+    stroke: rgba(255, 255, 255, 0.2);
+    stroke-width: 3;
+    fill: none;
+  }
+
+  .progress-circle {
+    stroke: white;
+    stroke-width: 3;
+    fill: none;
+    stroke-linecap: round;
+    stroke-dasharray: 0; /* JSで設定 */
+    stroke-dashoffset: 0;
+    transition: stroke-dashoffset 0.5s linear;
+  }
+
+  .timer-text {
+    position: absolute;
+    top: 45%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    font-size: clamp(4rem, 16vw, 5rem);
+    font-weight: bold;
+  }
+
+  /* ステータス文はタイマー下に固定 */
+  .phase-text {
+    position: absolute;
+    top: 62%; /* 下に下げて余裕を確保 */
+    left: 50%;
+    transform: translate(-50%, -50%);
+    font-size: clamp(1rem, 5vw, 1.2rem);
+    opacity: 0.9;
+  }
+
+  .controls {
+    margin-top: 50px; /* 余裕を持たせる */
+    text-align: center;
+    display: flex;
+    gap: 20px;
+    justify-content: center;
+  }
+
+  .circle-btn {
+  border: 1px solid white;
+  border-radius: 50%;
+  width: 60px;       /* 縦横固定 */
+  height: 60px;
+  background: transparent;
+  color: white;
+  font-size: 2rem;
+  cursor: pointer;
+
+  /* 中央揃え */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+
+  /* テキストが縦に伸びないように */
+  line-height: 1;
+  padding: 0;
+}
+
+
+  .pomodoro-count {
+    margin-top: 35px; /* ボタン下に余裕 */
+    font-size: clamp(0.8rem, 3vw, 1rem);
+    opacity: 0.8;
+  }
+</style>
+</head>
+<body>
+
+<div class="circle-container">
+  <svg width="100%" height="100%" viewBox="0 0 100 100">
+    <circle class="bg-circle" cx="50" cy="50" r="45"/>
+    <circle id="progress" class="progress-circle" cx="50" cy="50" r="45"/>
+  </svg>
+  <div class="timer-text" id="timer">25:00</div>
+  <div class="phase-text" id="phase">作業開始</div>
+</div>
+
+<div class="controls" id="controls">
+  <button class="circle-btn" id="startBtn" onclick="toggleTimer()">▶</button>
+</div>
+
+<div class="pomodoro-count" id="pomodoroCount">現在 0 ポモドーロ</div>
+
+<audio id="alarm">
+  <source src="https://actions.google.com/sounds/v1/alarms/alarm_clock.ogg" type="audio/ogg">
+</audio>
+
+<script>
+let workTime = 25 * 60;
+let shortBreak = 5 * 60;
+let longBreak = 20 * 60;
+let currentTime = workTime;
+let cycleCount = 0;
+let pomodoroCount = 0;
+let timerInterval;
+let isRunning = false;
+let phase = "ready"; // ready, work, shortBreak, longBreak, paused
+
+const timerEl = document.getElementById("timer");
+const phaseEl = document.getElementById("phase");
+const pomodoroEl = document.getElementById("pomodoroCount");
+const progressCircle = document.getElementById("progress");
+const radius = 45;
+const circumference = 2 * Math.PI * radius;
+progressCircle.style.strokeDasharray = circumference;
+progressCircle.style.strokeDashoffset = circumference;
+
+function updateDisplay() {
+  let minutes = Math.floor(currentTime / 60);
+  let seconds = currentTime % 60;
+  timerEl.textContent = `${String(minutes).padStart(2,'0')}:${String(seconds).padStart(2,'0')}`;
+  pomodoroEl.textContent = `現在 ${pomodoroCount} ポモドーロ`;
+
+  let totalTime = phase === "work" ? workTime :
+                  phase === "shortBreak" ? shortBreak :
+                  phase === "longBreak" ? longBreak : workTime;
+
+  let progress = (totalTime - currentTime) / totalTime;
+  progressCircle.style.strokeDashoffset = circumference * (1 - progress);
+}
+
+function playAlarm() {
+  const alarm = document.getElementById("alarm");
+  alarm.currentTime = 0;
+  alarm.play();
+  setTimeout(()=>alarm.pause(),2000); // 2秒で止める
+}
+
+function setBackgroundForPhase() {
+  if(phase==="work"||phase==="ready"||phase==="paused")
+    document.body.style.background="linear-gradient(to top, #ff055b, #f59c01)";
+  else if(phase==="shortBreak")
+    document.body.style.background="linear-gradient(to top, #4facfe, #00f2fe)";
+  else if(phase==="longBreak")
+    document.body.style.background="linear-gradient(to top, #43e97b, #38f9d7)";
+}
+
+function renderControls(){
+  const controls = document.getElementById("controls");
+  controls.innerHTML = "";
+  if(phase==="ready") {
+    controls.innerHTML=`<button class="circle-btn" onclick="toggleTimer()">▶</button>`;
+  } else if(isRunning){
+    controls.innerHTML=`<button class="circle-btn" onclick="pauseTimer()">‖</button>
+                        <button class="circle-btn" onclick="stopTimer()">■</button>`;
+  } else if(phase==="paused"){
+    controls.innerHTML=`<button class="circle-btn" onclick="resumeTimer()">▶</button>
+                        <button class="circle-btn" onclick="stopTimer()">■</button>`;
+  }
+}
+
+function toggleTimer(){
+  if(!isRunning){
+    if(phase==="ready"){
+      phase="work";
+      currentTime=workTime;
+      phaseEl.textContent="作業中";
+      setBackgroundForPhase();
+    }
+    startTimer();
+  }
+}
+
+function startTimer(){
+  isRunning=true;
+  phaseEl.textContent=phase==="paused"?"作業中":phaseEl.textContent;
+  renderControls();
+  timerInterval=setInterval(()=>{
+    currentTime--;
+    updateDisplay();
+
+    if(currentTime<=0){
+      playAlarm();
+      clearInterval(timerInterval);
+      isRunning=false;
+
+      if(phase==="work"){
+        pomodoroCount++;
+        cycleCount++;
+        if(cycleCount%4===0){
+          phase="longBreak";
+          currentTime=longBreak;
+          phaseEl.textContent="大休憩";
+        } else {
+          phase="shortBreak";
+          currentTime=shortBreak;
+          phaseEl.textContent="小休憩";
+        }
+      } else {
+        phase="work";
+        currentTime=workTime;
+        phaseEl.textContent="作業中";
+      }
+
+      setBackgroundForPhase();
+      updateDisplay();
+      startTimer();
+    }
+  },1000);
+}
+
+function pauseTimer(){
+  clearInterval(timerInterval);
+  isRunning=false;
+  phase="paused";
+  phaseEl.textContent="一時停止中";
+  renderControls();
+}
+
+function resumeTimer(){
+  phase="work";
+  phaseEl.textContent="作業中";
+  startTimer();
+}
+
+function stopTimer(){
+  clearInterval(timerInterval);
+  isRunning=false;
+  phase="ready";
+  currentTime=workTime;
+  phaseEl.textContent="作業開始";
+  setBackgroundForPhase();
+  updateDisplay();
+  renderControls();
+}
+
+updateDisplay();
+renderControls();
+</script>
+
+</body>
+</html>
