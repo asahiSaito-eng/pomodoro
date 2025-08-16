@@ -1,7 +1,7 @@
 {
   "name": "ポモドーロタイマー",
   "short_name": "Pomodoro",
-  "start_url": "./index.html",
+  "start_url": "/index.html",
   "display": "standalone",
   "background_color": "#ff055b",
   "theme_color": "#ff055b",

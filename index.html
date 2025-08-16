@@ -13,64 +13,68 @@
 <link rel="apple-touch-icon" sizes="180x180" href="/img/apple-touch-icon-180.png">
 
 <style>
-  html, body {
-    margin:0; padding:0;
-    font-family: sans-serif;
-    height: 100%;
-    display: flex;
-    flex-direction: column;
-    justify-content: center;
-    align-items: center;
-    background: linear-gradient(to top, #ff055b, #f59c01);
-  }
-  #timer-container {
-    position: relative;
-    width: 280px;
-    height: 280px;
-    margin-bottom: 40px;
-  }
-  canvas {
-    position: absolute;
-    top:0; left:0;
-  }
-  #time {
-    position: absolute;
-    top: 40%;
-    width: 100%;
-    text-align: center;
-    font-size: 48px;
-    font-weight: bold;
-    color: white;
-  }
-  #status {
-    position: absolute;
-    top: 65%;
-    width: 100%;
-    text-align: center;
-    font-size: 20px;
-    color: white;
-  }
-  #controls {
-    display: flex;
-    gap: 30px;
-    margin-bottom: 20px;
-  }
-  .btn-circle {
-    width: 60px; height: 60px;
-    border-radius: 50%;
-    border: 2px solid white;
-    display: flex;
-    justify-content: center;
-    align-items: center;
-    font-size: 30px;
-    color: white;
-    cursor: pointer;
-    user-select: none;
-  }
-  #pomodoro-count {
-    font-size: 16px;
-    color: white;
-  }
+html, body {
+  margin:0; padding:0;
+  font-family: sans-serif;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  background: linear-gradient(to top, #ff055b, #f59c01);
+}
+
+#timer-container {
+  position: relative;
+  width: 280px;
+  height: 280px;
+  margin-bottom: 20px;
+}
+
+canvas {
+  position: absolute;
+  top:0; left:0;
+}
+
+#time {
+  position: absolute;
+  top: 40%;
+  width: 100%;
+  text-align: center;
+  font-size: 56px;
+  font-weight: bold;
+  color: white;
+}
+
+#status {
+  position: absolute;
+  top: 70%;
+  width: 100%;
+  text-align: center;
+  font-size: 20px;
+  color: white;
+}
+
+#controls {
+  display: flex;
+  justify-content: center;
+  gap: 30px;
+  margin-bottom: 20px;
+}
+
+.btn-img {
+  width: 60px;
+  height: 60px;
+  cursor: pointer;
+  user-select: none;
+  object-fit: contain;
+}
+
+#pomodoro-count {
+  font-size: 16px;
+  color: white;
+  margin-top: 20px;
+}
 </style>
 </head>
 <body>
@@ -82,150 +86,219 @@
 </div>
 
 <div id="controls">
-  <div id="start-pause-btn" class="btn-circle">▶</div>
-  <div id="stop-btn" class="btn-circle">■</div>
+  <img id="start-pause-btn" src="/img/play.png" class="btn-img">
+  <img id="stop-btn" src="/img/stop.png" class="btn-img" style="display:none;">
 </div>
 
 <div id="pomodoro-count">現在 0 ポモドーロ</div>
 
 <script>
-let workTime = 25*60; // 秒
-let shortBreak = 5*60;
-let longBreak = 20*60;
-let cycleCount = 0;
-let totalPomodoro = 0;
-let timer = workTime;
-let isRunning = false;
-let interval = null;
-let phase = 'work'; // work / short / long / paused
-let alarmAudio;
+document.addEventListener("DOMContentLoaded", () => {
+  const timerDisplay = document.getElementById("time");
+  const statusText = document.getElementById("status");
+  const pomodoroCount = document.getElementById("pomodoro-count");
+  const startPauseBtn = document.getElementById("start-pause-btn");
+  const stopBtn = document.getElementById("stop-btn");
+  const canvas = document.getElementById("timer-canvas");
+  const ctx = canvas.getContext("2d");
 
-// Canvas setup
-const canvas = document.getElementById('timer-canvas');
-const ctx = canvas.getContext('2d');
-const radius = canvas.width/2 - 10;
+  const radius = canvas.width / 2 - 10;
+  const centerX = canvas.width / 2;
+  const centerY = canvas.height / 2;
 
-function drawCircle() {
-  ctx.clearRect(0,0,canvas.width, canvas.height);
-  // 背景円
-  ctx.beginPath();
-  ctx.arc(canvas.width/2, canvas.height/2, radius, 0, Math.PI*2);
-  ctx.strokeStyle = 'rgba(255,255,255,0.2)';
-  ctx.lineWidth = 6;
-  ctx.stroke();
+  let phase = "work"; // work, shortBreak, longBreak
+  let count = 0;
+  let timer = 25 * 60;
+  let isRunning = false;
+  const workTime = 25 * 60;
+  const shortBreak = 5 * 60;
+  const longBreak = 20 * 60;
 
-  // 進捗円（白くなる）
-  let total = (phase==='work'?workTime:(phase==='short'?shortBreak:longBreak));
-  let percent = 1 - timer / total;
-  ctx.beginPath();
-  ctx.arc(canvas.width/2, canvas.height/2, radius, -Math.PI/2, -Math.PI/2 + percent*2*Math.PI);
-  ctx.strokeStyle = 'white';
-  ctx.lineWidth = 6;
-  ctx.stroke();
-}
+  let lastFrameTime = null;
 
-function formatTime(t) {
-  const m = Math.floor(t/60).toString().padStart(2,'0');
-  const s = (t%60).toString().padStart(2,'0');
-  return `${m}:${s}`;
-}
+  const audio = new Audio("/alarm.mp3");
+  audio.preload = "auto";
 
-function updateDisplay() {
-  document.getElementById('time').textContent = formatTime(timer);
-  if(phase==='work') document.getElementById('status').textContent = isRunning ? '作業中' : '作業開始';
-  else if(phase==='short') document.getElementById('status').textContent = '小休憩';
-  else if(phase==='long') document.getElementById('status').textContent = '大休憩';
-  else if(phase==='paused') document.getElementById('status').textContent = '一時停止中';
-  drawCircle();
-}
-
-function playAlarm() {
-  if(!alarmAudio) {
-    alarmAudio = new Audio('/alarm.mp3');
+  function saveState() {
+    localStorage.setItem("pomodoro_state", JSON.stringify({
+      phase, count, timer, isRunning, lastStart: Date.now()
+    }));
   }
-  alarmAudio.currentTime = 0;
-  alarmAudio.play().catch(e=>console.log('Audio再生制限', e));
-}
 
-async function requestNotificationPermission() {
-  if('Notification' in window && Notification.permission !== 'granted') {
-    await Notification.requestPermission();
+  if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('/sw.js')
+    .then(() => console.log('Service Worker registered'));
   }
-}
 
-function sendNotification(title, body) {
-  if('Notification' in window && Notification.permission === 'granted') {
-    new Notification(title, {body: body, icon: '/img/apple-touch-icon-180.png'});
+  function loadState() {
+    const data = localStorage.getItem("pomodoro_state");
+    if (!data) return;
+    const state = JSON.parse(data);
+    phase = state.phase;
+    count = state.count;
+    isRunning = state.isRunning;
+    let elapsed = Math.floor((Date.now() - state.lastStart)/1000);
+    timer = state.timer - elapsed;
+    if (timer < 0) timer = 0;
+    updateUI();
+    drawCircle();
+    updateButtons();
   }
-}
 
-function nextPhase() {
-  playAlarm();
-  if(phase==='work') {
-    totalPomodoro++;
-    cycleCount++;
-    timer = (cycleCount%4===0)?longBreak:shortBreak;
-    phase = (cycleCount%4===0)?'long':'short';
-    sendNotification('休憩開始', (phase==='long')?'大休憩です':'小休憩です');
-  } else {
-    timer = workTime;
-    phase='work';
-    sendNotification('作業開始', '作業を再開しましょう');
+  function setPhase(newPhase) {
+    phase = newPhase;
+    if (phase === "work") {
+      timer = workTime;
+      statusText.textContent = "作業中";
+      document.body.style.background = "linear-gradient(to top, #ff055b, #f59c01)";
+    } else if (phase === "shortBreak") {
+      timer = shortBreak;
+      statusText.textContent = "小休憩";
+      document.body.style.background = "linear-gradient(to top, #4facfe, #00f2fe)";
+    } else {
+      timer = longBreak;
+      statusText.textContent = "大休憩";
+      document.body.style.background = "linear-gradient(to top, #43e97b, #38f9d7)";
+    }
+    updateUI();
+    drawCircle();
+    saveState();
+    updateButtons();
   }
-  updateDisplay();
-  document.getElementById('pomodoro-count').textContent = `現在 ${totalPomodoro} ポモドーロ`;
-}
 
-function tick() {
-  if(timer>0) {
-    timer--;
-    updateDisplay();
-  } else {
-    nextPhase();
+  function updateUI() {
+    const minutes = String(Math.floor(timer/60)).padStart(2,"0");
+    const seconds = String(Math.floor(timer%60)).padStart(2,"0");
+    timerDisplay.textContent = `${minutes}:${seconds}`;
+    pomodoroCount.textContent = `現在 ${count} ポモドーロ`;
   }
-}
 
-const startPauseBtn = document.getElementById('start-pause-btn');
-const stopBtn = document.getElementById('stop-btn');
+  function drawCircle() {
+    ctx.clearRect(0,0,canvas.width,canvas.height);
 
-startPauseBtn.addEventListener('click', async ()=>{
-  await requestNotificationPermission();
-  if(!alarmAudio) alarmAudio = new Audio('/alarm.mp3'); // ユーザー操作で再生許可取得
+    // 背景薄灰色円
+    ctx.beginPath();
+    ctx.arc(centerX, centerY, radius, 0, 2*Math.PI);
+    ctx.strokeStyle = "rgba(200,200,200,0.3)";
+    ctx.lineWidth = 6;
+    ctx.stroke();
 
-  if(!isRunning) {
+    // 進行円（白）
+    const total = (phase==="work")? workTime : (phase==="shortBreak"? shortBreak: longBreak);
+    const progress = 2*Math.PI * (timer/total);
+    ctx.beginPath();
+    ctx.arc(centerX, centerY, radius, -Math.PI/2, -Math.PI/2 + progress, false); // 逆回り
+    ctx.strokeStyle = "#fff";
+    ctx.lineWidth = 6;
+    ctx.stroke();
+  }
+
+  function startTimer() {
+    if (isRunning) return;
     isRunning = true;
-    if(phase==='paused') phase='work';
-    interval = setInterval(tick,1000);
-    startPauseBtn.textContent = '‖';
-  } else {
-    isRunning = false;
-    clearInterval(interval);
-    interval=null;
-    phase='paused';
-    startPauseBtn.textContent='▶';
+    updateButtons();
+    if (phase === "work" && timer === workTime && count === 0) {
+      statusText.textContent = "作業中";
+    } else if (phase === "work") {
+      statusText.textContent = "作業中";
+    } else if (phase === "shortBreak") {
+      statusText.textContent = "小休憩";
+    } else if (phase === "longBreak") {
+      statusText.textContent = "大休憩";
+    }
+    lastFrameTime = performance.now();
+    requestAnimationFrame(loop);
   }
-  updateDisplay();
+
+  function pauseTimer() {
+    isRunning = false;
+    statusText.textContent = "一時停止中";
+    updateButtons();
+    saveState();
+  }
+
+  function stopTimer() {
+    isRunning = false;
+    setPhase("work");
+    statusText.textContent = "作業開始";
+    updateButtons();
+    saveState();
+  }
+
+  function loop(timestamp) {
+    if (!isRunning) return;
+    const delta = (timestamp - lastFrameTime) / 1000;
+    lastFrameTime = timestamp;
+    timer -= delta;
+    if (timer <= 0) {
+      timer = 0;
+      updateUI();
+      drawCircle();
+      playAlarm();
+      nextPhase();
+      return;
+    }
+    updateUI();
+    drawCircle();
+    requestAnimationFrame(loop);
+  }
+
+  function nextPhase() {
+    if (phase==="work") {
+      count++;
+      if (count % 4 === 0) setPhase("longBreak");
+      else setPhase("shortBreak");
+    } else {
+      setPhase("work");
+    }
+    saveState();
+    startTimer();
+  }
+
+  function playAlarm() {
+    audio.currentTime = 0;
+    audio.play().catch(e=>console.log(e));
+    if ("Notification" in window && Notification.permission === "granted") {
+      new Notification("ポモドーロタイマー", {
+        body: (phase==="work")? "休憩しましょう":"作業を再開しましょう",
+        icon: "/img/apple-touch-icon-180.png"
+      });
+    }
+  }
+
+  function updateButtons() {
+    if (phase === "work" && !isRunning && timer===workTime) {
+      startPauseBtn.src="/img/play.png";
+      stopBtn.style.display="none";
+    } else if (isRunning) {
+      startPauseBtn.src="/img/pause.png";
+      stopBtn.style.display="inline-block";
+    } else if (!isRunning && phase !== "work") {
+      startPauseBtn.src="/img/play.png";
+      stopBtn.style.display="inline-block";
+    } else if (!isRunning && phase==="work") {
+      startPauseBtn.src="/img/play.png";
+      stopBtn.style.display="inline-block";
+    }
+  }
+
+  startPauseBtn.addEventListener("click",()=>{
+    if (!isRunning) startTimer();
+    else pauseTimer();
+    updateButtons();
+  });
+
+  stopBtn.addEventListener("click",()=>stopTimer());
+
+  if ("Notification" in window && Notification.permission!=="granted") {
+    Notification.requestPermission();
+  }
+
+  loadState();
+  drawCircle();
+  updateUI();
+  updateButtons();
 });
-
-stopBtn.addEventListener('click', ()=>{
-  clearInterval(interval);
-  interval=null;
-  isRunning=false;
-  timer=workTime;
-  phase='work';
-  startPauseBtn.textContent='▶';
-  updateDisplay();
-  document.getElementById('pomodoro-count').textContent = `現在 ${totalPomodoro} ポモドーロ`;
-});
-
-updateDisplay();
-
-// Service Worker 登録（バックグラウンド通知用）
-if('serviceWorker' in navigator){
-  navigator.serviceWorker.register('/sw.js').then(()=>console.log('SW registered'));
-}
 </script>
-
-
 </body>
 </html>
